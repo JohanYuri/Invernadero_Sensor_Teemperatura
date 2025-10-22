@@ -1,36 +1,48 @@
 #include <WiFi.h>
 #include <WebServer.h>
-#include <OneWire.h>
-#include <DallasTemperature.h>
+// --- LIBRERÍAS PARA EL SENSOR DHT ---
+#include <DHT.h>
 
-// --- CONFIGURACIÓN DE TU RED WIFI ---
-const char* ssid = "TU_WIFI_SSID";
-const char* password = "TU_WIFI_PASSWORD";
+// --- CONFIGURACIÓN DE LA RED WIFI ---
+const char* ssid = "MEGACABLE-2.4G-E8AA_EXT";
+const char* password = "pD9vzFKzK2";
 
 // --- CONFIGURACIÓN DE PINES ---
-#define ONE_WIRE_BUS 21 // Pin D21 para el sensor DS18B20
+#define DHTPIN 21       // Pin D21 para el sensor DHT22
+#define DHTTYPE DHT22   // Define el tipo de sensor
 const int pinVentilador = 22;
 const int pinFoco = 23;
 
 // --- INICIALIZACIÓN DE DISPOSITIVOS Y SERVIDOR ---
-WebServer server(80); // El servidor web se ejecuta en el puerto 80
-OneWire oneWire(ONE_WIRE_BUS);
-DallasTemperature sensors(&oneWire);
+WebServer server(80);
+// Inicializa el sensor DHT
+DHT dht(DHTPIN, DHTTYPE);
 
 // Variables para guardar el estado de los actuadores
-bool estadoVentilador = false; // false = OFF, true = ON
+bool estadoVentilador = false;
 bool estadoFoco = false;
 
-// --- FUNCIÓN PARA MANEJAR LA PETICIÓN DE DATOS ---
+// --- FUNCIÓN PARA MANEJAR LA PETICIÓN DE DATOS (MODIFICADA) ---
 void handleData() {
-  sensors.requestTemperatures();
-  float tempC = sensors.getTempCByIndex(0);
-  tempC -= 300;
+  // Leer solo la temperatura
+  float tempC = dht.readTemperature();
+
+  // Verificar si la lectura fue exitosa (isnan = "Is Not a Number")
+  if (isnan(tempC)) {
+    // Enviar error si falla la lectura
+    String jsonError = "{";
+    jsonError += "\"temperatura\": \"Error\"";
+    jsonError += ", \"ventilador\": " + String(estadoVentilador ? "1" : "0");
+    jsonError += ", \"foco\": " + String(estadoFoco ? "1" : "0");
+    jsonError += "}";
+    server.send(200, "application/json", jsonError);
+    return;
+  }
   
-  // Crear una respuesta en formato JSON (fácil de leer para Python)
+  // Crear una respuesta en formato JSON
   String json = "{";
   json += "\"temperatura\": ";
-  json += (tempC == DEVICE_DISCONNECTED_C) ? "\"Error\"" : String(tempC);
+  json += String(tempC);
   json += ", ";
   json += "\"ventilador\": ";
   json += estadoVentilador ? "1" : "0";
@@ -42,34 +54,33 @@ void handleData() {
   server.send(200, "application/json", json);
 }
 
-// --- FUNCIÓN PARA MANEJAR LOS COMANDOS DE CONTROL ---
+// --- FUNCIÓN PARA MANEJAR LOS COMANDOS DE CONTROL (SIN CAMBIOS) ---
 void handleControl() {
-  // Recibir los parámetros de la URL, ej: /control?actuador=ventilador&estado=1
   String actuador = server.arg("actuador");
   int estado = server.arg("estado").toInt();
 
   if (actuador == "ventilador") {
-    digitalWrite(pinVentilador, (estado == 1) ? LOW : HIGH); 
+    digitalWrite(pinVentilador, (estado == 1) ? LOW : HIGH);
     estadoVentilador = (estado == 1);
   } else if (actuador == "foco") {
     digitalWrite(pinFoco, (estado == 1) ? LOW : HIGH);
     estadoFoco = (estado == 1);
   }
   
-  server.send(200, "text/plain", "OK"); // Responder a Python que el comando fue recibido
+  server.send(200, "text/plain", "OK");
 }
 
-// --- FUNCIÓN DE CONFIGURACIÓN ---
+// --- FUNCIÓN DE CONFIGURACIÓN (MODIFICADA) ---
 void setup() {
-  Serial.begin(1152200);
-  sensors.begin();
+  Serial.begin(115200);
+  dht.begin(); // Iniciar el sensor DHT
+  
   pinMode(pinVentilador, OUTPUT);
   pinMode(pinFoco, OUTPUT);
   
-  // Lógica invertida: HIGH es APAGADO
   digitalWrite(pinVentilador, HIGH);
   digitalWrite(pinFoco, HIGH);
-
+  
   // Conexión a WiFi
   Serial.print("Conectando a ");
   Serial.println(ssid);
@@ -80,17 +91,17 @@ void setup() {
   }
   Serial.println("\nWiFi conectado!");
   Serial.print("Dirección IP: ");
-  Serial.println(WiFi.localIP()); // ¡ESTA IP ES LA QUE NECESITAS PARA PYTHON!
-
-  // Definir las "páginas" o "endpoints" del servidor
+  Serial.println(WiFi.localIP());
+  
+  // Definir los endpoints
   server.on("/data", HTTP_GET, handleData);
   server.on("/control", HTTP_GET, handleControl);
   
-  server.begin(); // Iniciar el servidor
+  server.begin();
   Serial.println("Servidor HTTP iniciado");
 }
 
-// --- BUCLE PRINCIPAL ---
+// --- BUCLE PRINCIPAL (SIN CAMBIOS) ---
 void loop() {
-  server.handleClient(); // Escuchar peticiones de clientes (Python)
+  server.handleClient();
 }
